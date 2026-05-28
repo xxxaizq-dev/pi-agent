@@ -21,6 +21,7 @@ from .agent_loop import run_agent_loop, run_agent_loop_continue
 from .compaction import compact as _do_compact
 from .compaction import prepare_compaction, should_compact
 from .llm import LlmProvider, Model, OpenAiProvider
+from .messages import convert_to_llm as _default_convert_to_llm
 from .session import Session, build_session_context
 from .agent_types import (
     AgentContext,
@@ -49,58 +50,8 @@ from .agent_types import (
 from .utils import estimate_context_tokens, maybe_await
 
 
-# ============================================================================
-# Default message converter (AgentMessage[] → LLM-compatible dicts)
-# ============================================================================
-
-async def default_convert_to_llm(
-    messages: list[AgentMessage],
-) -> list[UserMessage | AssistantMessage | ToolResultMessage]:
-    """Filter and convert AgentMessage[] to LLM-compatible messages."""
-    result: list[UserMessage | AssistantMessage | ToolResultMessage] = []
-    for msg in messages:
-        role = getattr(msg, 'role', None)
-        if role == "user":
-            result.append(msg if isinstance(msg, UserMessage) else UserMessage(
-                content=getattr(msg, 'content', ''),
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-            ))
-        elif role == "assistant":
-            result.append(msg if isinstance(msg, AssistantMessage) else AssistantMessage(
-                content=getattr(msg, 'content', []),
-                provider=getattr(msg, 'provider', ''),
-                model=getattr(msg, 'model', ''),
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-                stopReason=getattr(msg, 'stop_reason', 'end_turn'),
-            ))
-        elif role == "toolResult":
-            result.append(msg if isinstance(msg, ToolResultMessage) else ToolResultMessage(
-                toolCallId=getattr(msg, 'tool_call_id', ''),
-                toolName=getattr(msg, 'tool_name', ''),
-                content=getattr(msg, 'content', []),
-                details=getattr(msg, 'details', None),
-                isError=getattr(msg, 'is_error', False),
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-            ))
-        elif role == "compactionSummary":
-            result.append(UserMessage(
-                content=f"[Previous conversation summary]: {getattr(msg, 'summary', '')}",
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-            ))
-        elif role == "bashExecution":
-            output = getattr(msg, 'output', '')
-            command = getattr(msg, 'command', '')
-            result.append(UserMessage(
-                content=f"[Bash command executed: {command}]\nOutput:\n{output}",
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-            ))
-        elif role == "custom":
-            content = getattr(msg, 'content', '')
-            result.append(UserMessage(
-                content=f"[Custom message]: {content}",
-                timestamp=getattr(msg, 'timestamp', int(time.time() * 1000)),
-            ))
-    return result
+# Re-export from messages.py for backward compatibility
+default_convert_to_llm = _default_convert_to_llm
 
 
 # ============================================================================

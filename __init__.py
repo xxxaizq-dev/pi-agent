@@ -28,6 +28,7 @@ from .llm import (
     OpenAiProvider,
     StreamEvent,
 )
+from .messages import convert_to_llm
 from .session import Session, JsonlSessionStorage, build_session_context
 from .tools import create_default_tools
 from .agent_types import (
@@ -93,6 +94,7 @@ __all__ = [
     # Agent
     "Agent",
     "default_convert_to_llm",
+    "convert_to_llm",
     # LLM
     "Model",
     "LlmProvider",
