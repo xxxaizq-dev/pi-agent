@@ -14,6 +14,17 @@ from typing import Any, Awaitable
 # UUIDv7 (time-ordered, matches TS behaviour)
 # ---------------------------------------------------------------------------
 
+def sanitize_surrogates(obj: Any) -> Any:
+    """Recursively replace lone surrogates in strings with U+FFFD."""
+    if isinstance(obj, str):
+        return obj.encode("utf-8", errors="surrogateescape").decode("utf-8", errors="replace")
+    if isinstance(obj, dict):
+        return {k: sanitize_surrogates(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [sanitize_surrogates(item) for item in obj]
+    return obj
+
+
 async def maybe_await(fn_result: Any) -> Any:
     """Await if coroutine, pass through otherwise. Mirrors TS `await` on non-Promise."""
     if inspect.iscoroutine(fn_result) or inspect.isawaitable(fn_result):

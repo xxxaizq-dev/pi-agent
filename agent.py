@@ -421,7 +421,8 @@ class Agent:
             try:
                 await maybe_await(listener(event))
             except Exception:
-                pass
+                import sys as _sys
+                _sys.stderr.write(f"[WARN] emit error: {event.get('type', '?')}\n")
 
     # ========================================================================
     # Overflow detection

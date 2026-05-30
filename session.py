@@ -25,7 +25,7 @@ from .agent_types import (
     SessionContext,
     SessionEntry,
 )
-from .utils import uuid_v7
+from .utils import uuid_v7, sanitize_surrogates
 
 
 # ============================================================================
@@ -80,7 +80,7 @@ class JsonlSessionStorage:
     async def append_entry(self, entry: SessionEntry) -> str:
         """Append one JSON line to the file, return the entry ID."""
         self._entries.append(entry)
-        line = entry.model_dump(by_alias=True, exclude_none=True, mode="json")
+        line = sanitize_surrogates(entry.model_dump(by_alias=True, exclude_none=True, mode="json"))
         async with aiofiles.open(self._path, "a", encoding="utf-8") as f:
             await f.write(json.dumps(line, ensure_ascii=False) + "\n")
         return entry.id

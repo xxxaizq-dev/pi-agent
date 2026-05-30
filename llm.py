@@ -141,8 +141,10 @@ class OpenAiProvider(LlmProvider):
                 payload: dict[str, Any] = {"role": "assistant"}
                 if blocks:
                     payload["content"] = blocks if len(blocks) > 1 else blocks[0]["text"]
-                else:
-                    payload["content"] = None
+                elif not tool_calls:
+                    # Skip empty assistant messages — some providers (DeepSeek)
+                    # reject {"role":"assistant","content":null}
+                    continue
                 if tool_calls:
                     payload["tool_calls"] = tool_calls
                 result.append(payload)
@@ -213,6 +215,7 @@ class OpenAiProvider(LlmProvider):
         # Build a partial assistant message gradually from stream deltas
         text_idx: dict[int, TextBlock] = {}  # content index -> TextBlock
         tool_idx: dict[int, ToolCallBlock] = {}  # content index -> ToolCallBlock
+        tool_args_str: dict[int, str] = {}  # index -> accumulated JSON args string
         next_idx = 0
 
         yield StreamEvent(type="start", partial=partial.model_copy(deep=True))
@@ -278,9 +281,10 @@ class OpenAiProvider(LlmProvider):
                         func = tc.get("function", {})
                         if idx in tool_idx:
                             existing = tool_idx[idx]
+                            cur_args_str = tool_args_str.get(idx, "")
                             if "arguments" in func:
                                 try:
-                                    args = json.loads(existing.arguments_str + func["arguments"])
+                                    args = json.loads(cur_args_str + func["arguments"])
                                 except json.JSONDecodeError:
                                     args = {}
                                 new_args = {**existing.arguments, **args}
@@ -290,15 +294,15 @@ class OpenAiProvider(LlmProvider):
                                     name=existing.name,
                                     arguments=new_args,
                                 )
-                                tool_idx[idx].arguments_str = existing.arguments_str + func["arguments"]
+                                tool_args_str[idx] = cur_args_str + func["arguments"]
                         else:
+                            tool_args_str[idx] = func.get("arguments", "")
                             tool_idx[idx] = ToolCallBlock(
                                 type="toolCall",
                                 id=tc.get("id", ""),
                                 name=func.get("name", ""),
                                 arguments={},
                             )
-                            tool_idx[idx].arguments_str = func.get("arguments", "")
                             if idx >= next_idx:
                                 next_idx = idx + 1
 
@@ -309,15 +313,11 @@ class OpenAiProvider(LlmProvider):
                             partial=partial.model_copy(deep=True),
                             toolCallId=tool_idx[idx].id,
                             toolName=tool_idx[idx].name,
-                            arguments=tool_idx[idx].arguments_str if hasattr(tool_idx[idx], 'arguments_str') else "",
+                            arguments=tool_args_str.get(idx, ""),
                         )
 
             # Build final message
             content = list(text_idx.values()) + list(tool_idx.values())
-            # Clean up arguments_str hack
-            for tc_block in tool_idx.values():
-                if hasattr(tc_block, 'arguments_str'):
-                    delattr(tc_block, 'arguments_str')
 
             stop_reason = "end_turn"
             if finish_reason == "tool_calls":

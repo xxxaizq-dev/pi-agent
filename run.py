@@ -19,6 +19,11 @@ import os
 import sys
 from pathlib import Path
 
+sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+from dotenv import load_dotenv
+load_dotenv(Path(__file__).parent / ".env", override=True)
+
 # Allow running from outside the project
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
@@ -77,11 +82,11 @@ async def main_loop(agent: Agent, cwd: str):
 async def main():
     parser = argparse.ArgumentParser(description="pi_agent - personal AI coding agent")
     parser.add_argument("--api-key", help="API key for the LLM provider")
-    parser.add_argument("--model", default="gpt-4o", help="Model ID (default: gpt-4o)")
+    parser.add_argument("--model", default=os.environ.get("OPENAI_MODEL", "gpt-4o"), help="Model ID")
     parser.add_argument("--provider", default="openai", choices=["openai", "anthropic"],
                         help="LLM provider (default: openai)")
     parser.add_argument("--cwd", default=".", help="Working directory (default: current)")
-    parser.add_argument("--base-url", help="Override API base URL")
+    parser.add_argument("--base-url", default=os.environ.get("OPENAI_BASE_URL"), help="Override API base URL")
     parser.add_argument("--session", help="Session file path for persistence")
     parser.add_argument("--no-compaction", action="store_true", help="Disable auto-compaction")
     args = parser.parse_args()
@@ -96,7 +101,7 @@ async def main():
         "id": args.model,
         "provider": args.provider,
         "contextWindow": 128000,
-        "maxTokens": 16384,
+        "maxTokens": 4096,
     }
     if args.base_url:
         model_kwargs["baseUrl"] = args.base_url
@@ -147,23 +152,39 @@ async def main():
     agent = Agent(**agent_kwargs)
 
     # Subscribe to events for streaming output
+    streamed_text = False
     def on_event(event: dict):
+        nonlocal streamed_text
         etype = event.get("type", "")
         if etype == "message_update":
-            evt = event.get("assistantMessageEvent", {})
-            text = evt.get("text", "")
+            text = event.get("assistantMessageEvent", {}).get("text", "")
             if text:
-                print(text, end="", flush=True)
+                streamed_text = True
+                sys.stdout.write(text)
+                sys.stdout.flush()
+        elif etype == "message_end":
+            msg = event.get("message")
+            if msg and getattr(msg, "role", None) == "assistant":
+                if not streamed_text:
+                    for block in getattr(msg, "content", []) or []:
+                        if getattr(block, "type", None) == "text":
+                            sys.stdout.write(getattr(block, "text", ""))
+                    sys.stdout.flush()
+                streamed_text = False
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+        elif etype == "turn_start":
+            streamed_text = False
         elif etype == "tool_execution_start":
             name = event.get("toolName", "?")
-            print(f"\n[Running: {name}...]", end="", flush=True)
+            sys.stdout.write(f"\n[Running: {name}...]")
+            sys.stdout.flush()
         elif etype == "tool_execution_end":
             name = event.get("toolName", "?")
             is_err = event.get("isError", False)
             status = "error" if is_err else "done"
-            print(f"[{name}: {status}]", flush=True)
-
-        return None  # sync callback, maybe_await handles it
+            sys.stdout.write(f"[{name}: {status}]\n")
+            sys.stdout.flush()
 
     agent.on_event(on_event)
 
